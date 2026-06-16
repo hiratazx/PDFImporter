@@ -13,9 +13,22 @@ module OpenSourceDev
       # Extract the largest image from a PDF page and save to a temp file.
       # Returns the path to the saved image, or nil if extraction failed.
       #
-      # Supports JPEG (DCTDecode) - the most common format for scanned PDFs.
-      # For other formats, returns the raw pixel data as BMP.
+      # Tries native OS rendering first (PowerShell on Windows, PDFKit on macOS)
+      # to guarantee high-fidelity rendering of all image formats (grayscale JPEG,
+      # JBIG2, CCITT, etc.). Falls back to raw XObject extraction if unsupported.
       def self.extract_image(pdf_path, page_number)
+        require 'tmpdir'
+        temp_dir = Dir.tmpdir rescue '/tmp'
+        output_png = File.join(temp_dir, "pdf_importer_page_#{page_number}.png")
+
+        # 1. Try native OS rendering first
+        if render_pdf_to_png(pdf_path, page_number, output_png)
+          return output_png
+        end
+
+        # 2. Fallback to extracting largest image XObject
+        puts "PDF Importer: Native OS rendering failed/unsupported. Falling back to XObject extraction..."
+
         reader = PDF::Reader.new(pdf_path)
         page = reader.pages[page_number - 1]
         objects = reader.objects
@@ -54,6 +67,120 @@ module OpenSourceDev
       rescue StandardError => e
         puts "PDF Importer: Image extraction error: #{e.message}"
         nil
+      end
+
+      # Render a PDF page directly to a PNG file using the OS's native PDF engine.
+      # On Windows, uses PowerShell + Windows.Data.Pdf.
+      # On macOS, uses Cocoa/PDFKit via osascript.
+      # Returns true on success.
+      def self.render_pdf_to_png(pdf_path, page_number, output_png_path)
+        abs_pdf = File.expand_path(pdf_path)
+        abs_png = File.expand_path(output_png_path)
+
+        if Sketchup.platform == :platform_win
+          abs_pdf = abs_pdf.gsub('/', '\\')
+          abs_png = abs_png.gsub('/', '\\')
+
+          # Create temporary PowerShell script
+          temp_dir = Dir.tmpdir rescue 'C:/Temp'
+          ps_script_path = File.join(temp_dir, 'pdf_render.ps1').gsub('/', '\\')
+
+          # 0-indexed page number for WinRT
+          page_idx = page_number - 1
+
+          ps_content = <<~POWERSHELL
+            [void][System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.WindowsRuntime")
+            $winmd = [IO.Path]::Combine($env:windir, "System32\\WinMetadata\\Windows.winmd")
+            [void][System.Reflection.Assembly]::LoadFile($winmd)
+
+            $pdfPath = #{escape_ps_string(abs_pdf)}
+            $outputPath = #{escape_ps_string(abs_png)}
+            $pageIndex = #{page_idx}
+
+            try {
+                $storageFile = [Windows.Storage.StorageFile]::GetFileFromPathAsync($pdfPath).GetAwaiter().GetResult()
+                $pdfDoc = [Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($storageFile).GetAwaiter().GetResult()
+                $page = $pdfDoc.GetPage($pageIndex)
+                $stream = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
+                $page.RenderToStreamAsync($stream).GetAwaiter().GetResult()
+
+                $fileStream = [System.IO.File]::Create($outputPath)
+                $netStream = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($stream)
+                $netStream.CopyTo($fileStream)
+                $fileStream.Close()
+                $netStream.Close()
+                $stream.Close()
+                $page.Dispose()
+                $pdfDoc.Dispose()
+                exit 0
+            } catch {
+                Write-Error $_.Exception.Message
+                exit 1
+            }
+          POWERSHELL
+
+          File.write(ps_script_path, ps_content)
+
+          # Execute PowerShell script silently using WIN32OLE
+          begin
+            require 'win32ole'
+            shell = WIN32OLE.new("WScript.Shell")
+            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)}"
+            exit_code = shell.Run(cmd, 0, true)
+            File.delete(ps_script_path) if File.exist?(ps_script_path)
+            return exit_code == 0 && File.exist?(output_png_path)
+          rescue StandardError => e
+            puts "PDF Importer: Silent PowerShell render failed: #{e.message}, trying fallback..."
+            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)}"
+            success = system(cmd)
+            File.delete(ps_script_path) if File.exist?(ps_script_path)
+            return success && File.exist?(output_png_path)
+          end
+
+        elsif Sketchup.platform == :platform_osx
+          cmd = <<~APPLE
+            osascript -e '
+            use framework "Foundation"
+            use framework "PDFKit"
+            use framework "AppKit"
+
+            set pdfURL to current application\x27s NSURL\x27s fileURLWithPath:"#{escape_applescript_string(abs_pdf)}"
+            set pdfDoc to current application\x27s PDFDocument\x27s alloc()\x27s initWithURL:pdfURL
+            set pdfPage to pdfDoc\x27s pageAtIndex:(#{page_number - 1})
+            set bounds to pdfPage\x27s boundsForBox:(current application\x27s kPDFDisplayBoxMediaBox)
+            set width to current application\x27s NSWidth(bounds)
+            set height to current application\x27s NSHeight(bounds)
+
+            # Render at 150 DPI (150/72 = 2.0833 scale)
+            set scale to 2.0833
+            set imgSize to current application\x27s NSMakeSize(width * scale, height * scale)
+            set image to current application\x27s NSImage\x27s alloc()\x27s initWithSize:imgSize
+            image\x27s lockFocus()
+            set context to current application\x27s NSGraphicsContext\x27s currentContext()
+            context\x27s setImageInterpolation:(current application\x27s NSImageInterpolationHigh)
+            pdfPage\x27s drawWithBox:(current application\x27s kPDFDisplayBoxMediaBox) toContext:context
+            image\x27s unlockFocus()
+
+            set tiffData to image\x27s TIFFRepresentation()
+            set imgRep to current application\x27s NSBitmapImageRep\x27s imageRepsWithData:tiffData\x27s objectAtIndex:0
+            set pngData to imgRep\x27s representationUsingType:(current application\x27s NSPNGFileType) properties:(missing value)
+            pngData\x27s writeToFile:"#{escape_applescript_string(abs_png)}" atomically:true
+            '
+          APPLE
+
+          success = system(cmd)
+          return success && File.exist?(output_png_path)
+        end
+
+        false
+      end
+
+      def self.escape_ps_string(str)
+        "'" + str.gsub("'", "''") + "'"
+      end
+
+      def self.escape_applescript_string(str)
+        str.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
       end
 
       # Import an image file onto the SketchUp ground plane
