@@ -121,9 +121,9 @@ module OpenSourceDev
             try {
                 Log-Msg "Loading Windows Runtime types..."
                 [void][System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.WindowsRuntime")
-                [void][Windows.Data.Pdf.PdfDocument, Windows.Data.Pdf, ContentType=WindowsRuntime]
-                [void][Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime]
-                [void][Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage, ContentType=WindowsRuntime]
+                [void][Windows.Data.Pdf.PdfDocument, Windows, ContentType=WindowsRuntime]
+                [void][Windows.Storage.StorageFile, Windows, ContentType=WindowsRuntime]
+                [void][Windows.Storage.Streams.InMemoryRandomAccessStream, Windows, ContentType=WindowsRuntime]
 
                 $pdfPath = #{escape_ps_string(abs_pdf)}
                 $outputPath = #{escape_ps_string(abs_png)}
@@ -316,9 +316,9 @@ module OpenSourceDev
         img_h = image_rep.height
         return 0 if img_w == 0 || img_h == 0
 
-        # Downsample resolution based on trace method (centerline needs more processing, outline can be larger)
+        # Downsample resolution (1800px provides excellent detail preservation and runs fast)
         trace_method = settings[:trace_method] || 'centerline'
-        max_dim = (trace_method == 'centerline') ? 900 : 1200
+        max_dim = 1800
 
         if img_w > max_dim || img_h > max_dim
           downsample_factor = [img_w, img_h].max.to_f / max_dim
@@ -654,90 +654,91 @@ module OpenSourceDev
           Math.sqrt(dx**2 + dy**2))
       end
 
-      # Thin a binary grid to a 1-pixel-wide skeleton using Zhang-Suen algorithm.
+      # Thin a binary grid to a 1-pixel-wide skeleton using an optimized active-list Zhang-Suen algorithm.
       def self.zhang_suen_thinning(binary)
         h = binary.length
         w = binary[0].length
         grid = binary.map(&:dup)
         
-        # Limit iterations to prevent hanging on large/noisy images
-        max_iterations = 25
+        # Initialize active list with coordinates of black pixels (excluding borders)
+        active = []
+        (1...h-1).each do |y|
+          (1...w-1).each do |x|
+            active << [x, y] if grid[y][x] == 1
+          end
+        end
+        
+        max_iterations = 35
         
         max_iterations.times do
           changed = false
           
           # Step 1: Mark pixels for deletion
           to_delete = []
-          (1...h-1).each do |y|
-            (1...w-1).each do |x|
-              next if grid[y][x] == 0
-              
-              p2 = grid[y-1][x]
-              p3 = grid[y-1][x+1]
-              p4 = grid[y][x+1]
-              p5 = grid[y+1][x+1]
-              p6 = grid[y+1][x]
-              p7 = grid[y+1][x-1]
-              p8 = grid[y][x-1]
-              p9 = grid[y-1][x-1]
-              
-              b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
-              next unless b >= 2 && b <= 6
-              
-              # Number of 0-to-1 transitions in sequence p2 -> p3 -> p4 -> p5 -> p6 -> p7 -> p8 -> p9 -> p2
-              seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
-              a = 0
-              (0..7).each do |i|
-                a += 1 if seq[i] == 0 && seq[i+1] == 1
-              end
-              next unless a == 1
-              
-              next unless p2 * p4 * p6 == 0
-              next unless p4 * p6 * p8 == 0
-              
-              to_delete << [x, y]
+          active.each do |x, y|
+            p2 = grid[y-1][x]
+            p3 = grid[y-1][x+1]
+            p4 = grid[y][x+1]
+            p5 = grid[y+1][x+1]
+            p6 = grid[y+1][x]
+            p7 = grid[y+1][x-1]
+            p8 = grid[y][x-1]
+            p9 = grid[y-1][x-1]
+            
+            b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+            next unless b >= 2 && b <= 6
+            
+            # Number of 0-to-1 transitions in sequence p2 -> p3 -> p4 -> p5 -> p6 -> p7 -> p8 -> p9 -> p2
+            seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
+            a = 0
+            (0..7).each do |i|
+              a += 1 if seq[i] == 0 && seq[i+1] == 1
             end
+            next unless a == 1
+            
+            next unless p2 * p4 * p6 == 0
+            next unless p4 * p6 * p8 == 0
+            
+            to_delete << [x, y]
           end
           
           unless to_delete.empty?
             to_delete.each { |x, y| grid[y][x] = 0 }
+            active.reject! { |x, y| grid[y][x] == 0 }
             changed = true
           end
           
           # Step 2: Mark pixels for deletion
           to_delete = []
-          (1...h-1).each do |y|
-            (1...w-1).each do |x|
-              next if grid[y][x] == 0
-              
-              p2 = grid[y-1][x]
-              p3 = grid[y-1][x+1]
-              p4 = grid[y][x+1]
-              p5 = grid[y+1][x+1]
-              p6 = grid[y+1][x]
-              p7 = grid[y+1][x-1]
-              p8 = grid[y][x-1]
-              p9 = grid[y-1][x-1]
-              
-              b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
-              next unless b >= 2 && b <= 6
-              
-              seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
-              a = 0
-              (0..7).each do |i|
-                a += 1 if seq[i] == 0 && seq[i+1] == 1
-              end
-              next unless a == 1
-              
-              next unless p2 * p4 * p8 == 0
-              next unless p2 * p6 * p8 == 0
-              
-              to_delete << [x, y]
+          active.each do |x, y|
+            p2 = grid[y-1][x]
+            p3 = grid[y-1][x+1]
+            p4 = grid[y][x+1]
+            p5 = grid[y+1][x+1]
+            p6 = grid[y+1][x]
+            p7 = grid[y+1][x-1]
+            p8 = grid[y][x-1]
+            p9 = grid[y-1][x-1]
+            
+            b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+            next unless b >= 2 && b <= 6
+            
+            seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
+            a = 0
+            (0..7).each do |i|
+              a += 1 if seq[i] == 0 && seq[i+1] == 1
             end
+            next unless a == 1
+            
+            next unless p2 * p4 * p8 == 0
+            next unless p2 * p6 * p8 == 0
+            
+            to_delete << [x, y]
           end
           
           unless to_delete.empty?
             to_delete.each { |x, y| grid[y][x] = 0 }
+            active.reject! { |x, y| grid[y][x] == 0 }
             changed = true
           end
           
