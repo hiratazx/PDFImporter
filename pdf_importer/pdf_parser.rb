@@ -115,22 +115,35 @@ module OpenSourceDev
         end
 
         # Path construction
-        def move_to(x, y); @path_ops += 1; end
-        def line_to(x, y); @path_ops += 1; end
-        def curve_to(*args); @path_ops += 1; end
-        def curve_to_initial(*args); @path_ops += 1; end
-        def curve_to_final(*args); @path_ops += 1; end
+        def begin_new_subpath(x, y); @path_ops += 1; end
+        alias move_to begin_new_subpath
+        def append_line(x, y); @path_ops += 1; end
+        alias line_to append_line
+        def append_curved_segment(*args); @path_ops += 1; end
+        alias curve_to append_curved_segment
+        def append_curved_segment_initial_point_replicated(*args); @path_ops += 1; end
+        alias curve_to_initial append_curved_segment_initial_point_replicated
+        def append_curved_segment_final_point_replicated(*args); @path_ops += 1; end
+        alias curve_to_final append_curved_segment_final_point_replicated
         def append_rectangle(x, y, w, h); @path_ops += 1; end
 
         # Path painting
-        def stroke; @path_ops += 1; end
-        def fill(*args); @path_ops += 1; end
-        def fill_with_even_odd; @path_ops += 1; end
-        def fill_and_stroke; @path_ops += 1; end
-        def fill_and_stroke_with_even_odd; @path_ops += 1; end
-        def close_and_stroke; @path_ops += 1; end
-        def close_and_fill_and_stroke; @path_ops += 1; end
-        def close_and_fill_and_stroke_with_even_odd; @path_ops += 1; end
+        def stroke_path; @path_ops += 1; end
+        alias stroke stroke_path
+        def fill_path_with_nonzero(*args); @path_ops += 1; end
+        alias fill fill_path_with_nonzero
+        def fill_path_with_even_odd(*args); @path_ops += 1; end
+        alias fill_with_even_odd fill_path_with_even_odd
+        def fill_stroke; @path_ops += 1; end
+        alias fill_and_stroke fill_stroke
+        def fill_stroke_with_even_odd; @path_ops += 1; end
+        alias fill_and_stroke_with_even_odd fill_stroke_with_even_odd
+        def close_and_stroke_path; @path_ops += 1; end
+        alias close_and_stroke close_and_stroke_path
+        def close_fill_stroke; @path_ops += 1; end
+        alias close_and_fill_and_stroke close_fill_stroke
+        def close_fill_stroke_with_even_odd; @path_ops += 1; end
+        alias close_and_fill_and_stroke_with_even_odd close_fill_stroke_with_even_odd
         def close_subpath; end
         def end_path; end
 
@@ -184,8 +197,10 @@ module OpenSourceDev
         def set_word_spacing(s); end
         def set_horizontal_text_scaling(s); end
         def move_to_start_of_next_line; end
-        def clip(*a); end
-        def clip_with_even_odd; end
+        def set_clipping_path_with_nonzero(*a); end
+        alias clip set_clipping_path_with_nonzero
+        def set_clipping_path_with_even_odd(*a); end
+        alias clip_with_even_odd set_clipping_path_with_even_odd
         def begin_marked_content(t); end
         def begin_marked_content_with_pl(t, p); end
         def end_marked_content; end
