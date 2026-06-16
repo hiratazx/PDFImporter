@@ -71,7 +71,8 @@ module OpenSourceDev
           pdf_type: data['pdfType'] || 'auto',
           raster_mode: data['rasterMode'] || 'image',
           trace_threshold: (data['threshold'] || 128).to_i.clamp(1, 254),
-          trace_simplify: (data['simplify'] || 2.0).to_f.clamp(0.5, 10.0)
+          trace_simplify: (data['simplify'] || 2.0).to_f.clamp(0.5, 10.0),
+          trace_method: data['traceMethod'] || 'centerline'
         }
       end
 

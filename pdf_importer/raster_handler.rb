@@ -125,7 +125,10 @@ module OpenSourceDev
                 Log-Msg "Loading Windows.winmd..."
                 $winmd = [IO.Path]::Combine($env:windir, "System32\\WinMetadata\\Windows.winmd")
                 if (-not (Test-Path $winmd)) {
-                    throw "WinMetadata file not found at $winmd"
+                    $winmd = [IO.Path]::Combine($env:windir, "Sysnative\\WinMetadata\\Windows.winmd")
+                }
+                if (-not (Test-Path $winmd)) {
+                    throw "WinMetadata file not found in System32 or Sysnative at $env:windir\\*\\WinMetadata\\Windows.winmd"
                 }
                 [void][System.Reflection.Assembly]::LoadFile($winmd)
 
@@ -317,11 +320,10 @@ module OpenSourceDev
         end
 
         img_w = image_rep.width
-        img_h = image_rep.height
-        return 0 if img_w == 0 || img_h == 0
+        # Downsample resolution based on trace method (centerline needs more processing, outline can be larger)
+        trace_method = settings[:trace_method] || 'centerline'
+        max_dim = (trace_method == 'centerline') ? 900 : 1200
 
-        # Downsample if too large (max 1200px on longest side for performance)
-        max_dim = 1200
         if img_w > max_dim || img_h > max_dim
           downsample_factor = [img_w, img_h].max.to_f / max_dim
         else
@@ -375,15 +377,25 @@ module OpenSourceDev
           }
         }
 
-        # Edge detection: find pixels where binary value changes
+        # Edge or Centerline detection
         edges = []
-        (1...ds_h - 1).each do |y|
-          (1...ds_w - 1).each do |x|
-            if binary[y][x] == 1
-              # Check if this is an edge pixel (has a white neighbor)
-              is_edge = binary[y-1][x] == 0 || binary[y+1][x] == 0 ||
-                        binary[y][x-1] == 0 || binary[y][x+1] == 0
-              edges << [x, y] if is_edge
+        if trace_method == 'centerline'
+          puts "PDF Importer: Running centerline thinning..."
+          skeleton = zhang_suen_thinning(binary)
+          (1...ds_h - 1).each do |y|
+            (1...ds_w - 1).each do |x|
+              edges << [x, y] if skeleton[y][x] == 1
+            end
+          end
+        else
+          puts "PDF Importer: Running outline edge detection..."
+          (1...ds_h - 1).each do |y|
+            (1...ds_w - 1).each do |x|
+              if binary[y][x] == 1
+                is_edge = binary[y-1][x] == 0 || binary[y+1][x] == 0 ||
+                          binary[y][x-1] == 0 || binary[y][x+1] == 0
+                edges << [x, y] if is_edge
+              end
             end
           end
         end
@@ -644,6 +656,99 @@ module OpenSourceDev
 
         ((dy * x - dx * y + x2 * y1 - y2 * x1).abs /
           Math.sqrt(dx**2 + dy**2))
+      end
+
+      # Thin a binary grid to a 1-pixel-wide skeleton using Zhang-Suen algorithm.
+      def self.zhang_suen_thinning(binary)
+        h = binary.length
+        w = binary[0].length
+        grid = binary.map(&:dup)
+        
+        # Limit iterations to prevent hanging on large/noisy images
+        max_iterations = 25
+        
+        max_iterations.times do
+          changed = false
+          
+          # Step 1: Mark pixels for deletion
+          to_delete = []
+          (1...h-1).each do |y|
+            (1...w-1).each do |x|
+              next if grid[y][x] == 0
+              
+              p2 = grid[y-1][x]
+              p3 = grid[y-1][x+1]
+              p4 = grid[y][x+1]
+              p5 = grid[y+1][x+1]
+              p6 = grid[y+1][x]
+              p7 = grid[y+1][x-1]
+              p8 = grid[y][x-1]
+              p9 = grid[y-1][x-1]
+              
+              b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+              next unless b >= 2 && b <= 6
+              
+              # Number of 0-to-1 transitions in sequence p2 -> p3 -> p4 -> p5 -> p6 -> p7 -> p8 -> p9 -> p2
+              seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
+              a = 0
+              (0..7).each do |i|
+                a += 1 if seq[i] == 0 && seq[i+1] == 1
+              end
+              next unless a == 1
+              
+              next unless p2 * p4 * p6 == 0
+              next unless p4 * p6 * p8 == 0
+              
+              to_delete << [x, y]
+            end
+          end
+          
+          unless to_delete.empty?
+            to_delete.each { |x, y| grid[y][x] = 0 }
+            changed = true
+          end
+          
+          # Step 2: Mark pixels for deletion
+          to_delete = []
+          (1...h-1).each do |y|
+            (1...w-1).each do |x|
+              next if grid[y][x] == 0
+              
+              p2 = grid[y-1][x]
+              p3 = grid[y-1][x+1]
+              p4 = grid[y][x+1]
+              p5 = grid[y+1][x+1]
+              p6 = grid[y+1][x]
+              p7 = grid[y+1][x-1]
+              p8 = grid[y][x-1]
+              p9 = grid[y-1][x-1]
+              
+              b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+              next unless b >= 2 && b <= 6
+              
+              seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
+              a = 0
+              (0..7).each do |i|
+                a += 1 if seq[i] == 0 && seq[i+1] == 1
+              end
+              next unless a == 1
+              
+              next unless p2 * p4 * p8 == 0
+              next unless p2 * p6 * p8 == 0
+              
+              to_delete << [x, y]
+            end
+          end
+          
+          unless to_delete.empty?
+            to_delete.each { |x, y| grid[y][x] = 0 }
+            changed = true
+          end
+          
+          break unless changed
+        end
+        
+        grid
       end
 
     end

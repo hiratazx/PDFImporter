@@ -402,6 +402,16 @@
   <div class="section hidden" id="traceSettings">
     <div class="section-title">Trace Settings</div>
     <div class="form-row">
+      <label for="traceMethodSelect">
+        Trace method
+        <span class="hint">Centerline for plans/drawings, Outline for solid shapes</span>
+      </label>
+      <select id="traceMethodSelect">
+        <option value="centerline" selected>Centerline (Single lines)</option>
+        <option value="outline">Outline (Double lines)</option>
+      </select>
+    </div>
+    <div class="form-row">
       <label>
         Threshold
         <span class="hint">Lower = more detail, higher = less noise</span>
@@ -539,6 +549,7 @@
         segments: parseInt(document.getElementById('segmentSlider').value) || 16,
         pdfType: pdfType,
         rasterMode: rasterMode,
+        traceMethod: document.getElementById('traceMethodSelect').value,
         threshold: parseInt(document.getElementById('thresholdSlider').value) || 128,
         simplify: parseFloat(document.getElementById('simplifySlider').value) || 2.0
       };
