@@ -37,15 +37,34 @@ module OpenSourceDev
           next if path_type == :fill && !import_fills
 
           path[:subpaths].each do |subpath|
-            edges = draw_subpath(entities, subpath, scale, curve_segments)
-            edge_count += edges.length
+            face_created = false
 
-            # If the subpath is closed and we're importing fills, try to create a face
-            if subpath[:closed] && import_fills && edges.length >= 3
-              begin
-                edges.first.find_faces if edges.first
-              rescue StandardError
-                # Face creation can fail for non-planar or invalid geometry
+            # Optimization: Try direct face creation for closed fill paths
+            if subpath[:closed] && import_fills && (path_type == :fill || path_type == :fill_and_stroke)
+              pts = collect_subpath_points(subpath, scale, curve_segments)
+              if pts.length >= 3
+                begin
+                  face = entities.add_face(pts)
+                  if face
+                    face_created = true
+                    edge_count += face.edges.length
+                  end
+                rescue StandardError
+                  # Fallback to drawing edges if direct face creation fails (e.g. non-planar points)
+                end
+              end
+            end
+
+            unless face_created
+              edges = draw_subpath(entities, subpath, scale, curve_segments)
+              edge_count += edges.length
+
+              # Fallback: find faces if drawing edges succeeded and it is a filled path
+              if subpath[:closed] && import_fills && (path_type == :fill || path_type == :fill_and_stroke) && edges.length >= 3
+                begin
+                  edges.first.find_faces if edges.first
+                rescue StandardError
+                end
               end
             end
           end
@@ -61,30 +80,22 @@ module OpenSourceDev
 
       private
 
-      # Draw a single subpath and return the array of edges created
-      def self.draw_subpath(entities, subpath, scale, curve_segments)
-        edges = []
+      # Collect all points for a subpath without creating any geometry
+      def self.collect_subpath_points(subpath, scale, curve_segments)
+        points = []
         current_point = nil
-        points_buffer = [] # For collecting curve points
 
         subpath[:operations].each do |op|
           case op[:op]
           when :move_to
-            # Flush any buffered points
-            edges.concat(flush_points(entities, points_buffer)) if points_buffer.length >= 2
-            points_buffer = []
-
             pt = to_sketchup_point(op[:x], op[:y], scale)
             current_point = pt
-            points_buffer << pt
-
+            points << pt
           when :line_to
             pt = to_sketchup_point(op[:x], op[:y], scale)
-            points_buffer << pt
+            points << pt
             current_point = pt
-
           when :curve_to
-            # Sample the cubic Bézier curve into line segments
             bezier_points = sample_bezier(
               op[:x0], op[:y0],
               op[:x1], op[:y1],
@@ -93,46 +104,105 @@ module OpenSourceDev
               curve_segments,
               scale
             )
-
-            # The first point of the Bézier should match current_point,
-            # so skip it to avoid duplicate
-            bezier_points.shift if !points_buffer.empty?
-            points_buffer.concat(bezier_points)
-            current_point = points_buffer.last
-
+            bezier_points.shift if !points.empty?
+            points.concat(bezier_points)
+            current_point = points.last
           end
         end
 
-        # Flush remaining points
-        edges.concat(flush_points(entities, points_buffer)) if points_buffer.length >= 2
+        # Filter out consecutive duplicate points
+        filtered = []
+        points.each do |pt|
+          if filtered.empty?
+            filtered << pt
+          else
+            prev = filtered.last
+            next if (pt.x - prev.x).abs < 0.0001 &&
+                    (pt.y - prev.y).abs < 0.0001 &&
+                    (pt.z - prev.z).abs < 0.0001
+            filtered << pt
+          end
+        end
 
+        # For closed loops, remove duplicate end point for add_face compatibility
+        if filtered.length >= 3 && filtered.first == filtered.last
+          filtered.pop
+        end
+
+        filtered
+      end
+
+      # Draw a single subpath and return the array of edges created
+      def self.draw_subpath(entities, subpath, scale, curve_segments)
+        edges = []
+        points_buffer = []
+
+        subpath[:operations].each do |op|
+          case op[:op]
+          when :move_to
+            edges.concat(flush_points(entities, points_buffer)) if points_buffer.length >= 2
+            points_buffer = []
+
+            pt = to_sketchup_point(op[:x], op[:y], scale)
+            points_buffer << pt
+
+          when :line_to
+            pt = to_sketchup_point(op[:x], op[:y], scale)
+            points_buffer << pt
+
+          when :curve_to
+            bezier_points = sample_bezier(
+              op[:x0], op[:y0],
+              op[:x1], op[:y1],
+              op[:x2], op[:y2],
+              op[:x3], op[:y3],
+              curve_segments,
+              scale
+            )
+            bezier_points.shift if !points_buffer.empty?
+            points_buffer.concat(bezier_points)
+          end
+        end
+
+        edges.concat(flush_points(entities, points_buffer)) if points_buffer.length >= 2
         edges
       end
 
-      # Convert buffered points into edges
+      # Convert buffered points into edges using high-performance bulk add_edges API
       def self.flush_points(entities, points)
         return [] if points.length < 2
-        edges = []
 
-        (0...points.length - 1).each do |i|
-          pt1 = points[i]
-          pt2 = points[i + 1]
-
-          # Skip zero-length edges
-          next if pt1 == pt2
-          next if (pt1.x - pt2.x).abs < 0.0001 &&
-                  (pt1.y - pt2.y).abs < 0.0001 &&
-                  (pt1.z - pt2.z).abs < 0.0001
-
-          begin
-            edge = entities.add_line(pt1, pt2)
-            edges << edge if edge
-          rescue ArgumentError
-            # Skip invalid edges (e.g., zero-length after rounding)
+        # Filter out consecutive duplicate points
+        filtered = []
+        points.each do |pt|
+          if filtered.empty?
+            filtered << pt
+          else
+            prev = filtered.last
+            next if (pt.x - prev.x).abs < 0.0001 &&
+                    (pt.y - prev.y).abs < 0.0001 &&
+                    (pt.z - prev.z).abs < 0.0001
+            filtered << pt
           end
         end
 
-        edges
+        return [] if filtered.length < 2
+
+        begin
+          # add_edges returns an array of Edge objects in a single C++ operation
+          entities.add_edges(filtered)
+        rescue StandardError
+          # Fallback to individual lines if add_edges fails
+          edges = []
+          (0...filtered.length - 1).each do |i|
+            begin
+              edge = entities.add_line(filtered[i], filtered[i + 1])
+              edges << edge if edge
+            rescue StandardError
+            end
+          end
+          edges
+        end
       end
 
       # Convert PDF coordinates to a SketchUp Point3d on the ground plane
