@@ -21,13 +21,21 @@ module OpenSourceDev
         temp_dir = Dir.tmpdir rescue '/tmp'
         output_png = File.join(temp_dir, "pdf_importer_page_#{page_number}.png")
 
+        puts "PDF Importer: --- Starting Image Extraction ---"
+        puts "PDF Importer: PDF Path = #{pdf_path}"
+        puts "PDF Importer: Target Page = #{page_number}"
+        puts "PDF Importer: Output PNG Path = #{output_png}"
+
         # 1. Try native OS rendering first
         if render_pdf_to_png(pdf_path, page_number, output_png)
+          puts "PDF Importer: Native OS rendering succeeded. Returning PNG path."
           return output_png
+        else
+          puts "PDF Importer: Native OS rendering failed."
         end
 
         # 2. Fallback to extracting largest image XObject
-        puts "PDF Importer: Native OS rendering failed/unsupported. Falling back to XObject extraction..."
+        puts "PDF Importer: Falling back to raw XObject extraction..."
 
         reader = PDF::Reader.new(pdf_path)
         page = reader.pages[page_number - 1]
@@ -57,15 +65,19 @@ module OpenSourceDev
           }
         end
 
+        puts "PDF Importer: Found #{images.length} XObject images on this page."
+
         return nil if images.empty?
 
         # Pick the largest image (most likely the page scan)
         best = images.max_by { |img| img[:pixels] }
         return nil unless best && best[:pixels] > 0
 
+        puts "PDF Importer: Extracting XObject '#{best[:name]}' (#{best[:width]}x#{best[:height]}, filter: #{best[:filter].inspect})..."
         save_image(best)
       rescue StandardError => e
         puts "PDF Importer: Image extraction error: #{e.message}"
+        puts e.backtrace.first(10).join("\n")
         nil
       end
 
@@ -77,6 +89,9 @@ module OpenSourceDev
         abs_pdf = File.expand_path(pdf_path)
         abs_png = File.expand_path(output_png_path)
 
+        puts "PDF Importer: Attempting native OS rendering..."
+        puts "PDF Importer: Platform detected = #{Sketchup.platform.inspect}"
+
         if Sketchup.platform == :platform_win
           abs_pdf = abs_pdf.gsub('/', '\\')
           abs_png = abs_png.gsub('/', '\\')
@@ -84,26 +99,58 @@ module OpenSourceDev
           # Create temporary PowerShell script
           temp_dir = Dir.tmpdir rescue 'C:/Temp'
           ps_script_path = File.join(temp_dir, 'pdf_render.ps1').gsub('/', '\\')
+          stdout_log = File.join(temp_dir, 'pdf_render_out.log').gsub('/', '\\')
+          stderr_log = File.join(temp_dir, 'pdf_render_err.log').gsub('/', '\\')
 
           # 0-indexed page number for WinRT
           page_idx = page_number - 1
 
           ps_content = <<~POWERSHELL
+            $ErrorActionPreference = "Stop"
+            Write-Host "Loading WinRT assemblies..."
             [void][System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.WindowsRuntime")
+            
+            Write-Host "Loading Windows.winmd..."
             $winmd = [IO.Path]::Combine($env:windir, "System32\\WinMetadata\\Windows.winmd")
+            if (-not (Test-Path $winmd)) {
+                throw "WinMetadata file not found at $winmd"
+            }
             [void][System.Reflection.Assembly]::LoadFile($winmd)
 
             $pdfPath = #{escape_ps_string(abs_pdf)}
             $outputPath = #{escape_ps_string(abs_png)}
             $pageIndex = #{page_idx}
 
+            Write-Host "PDF Path: $pdfPath"
+            Write-Host "Output Path: $outputPath"
+            Write-Host "Page Index: $pageIndex"
+
             try {
+                if (-not (Test-Path $pdfPath)) {
+                    throw "PDF source file does not exist at $pdfPath"
+                }
+                
+                Write-Host "Resolving StorageFile..."
                 $storageFile = [Windows.Storage.StorageFile]::GetFileFromPathAsync($pdfPath).GetAwaiter().GetResult()
+                
+                Write-Host "Loading PDF Document..."
                 $pdfDoc = [Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($storageFile).GetAwaiter().GetResult()
+                Write-Host "PDF page count: $($pdfDoc.PageCount)"
+                
+                if ($pageIndex -ge $pdfDoc.PageCount) {
+                    throw "Requested page index $pageIndex is out of range. Document has $($pdfDoc.PageCount) pages."
+                }
+                
+                Write-Host "Retrieving page $pageIndex..."
                 $page = $pdfDoc.GetPage($pageIndex)
+                
+                Write-Host "Creating in-memory stream..."
                 $stream = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
+                
+                Write-Host "Rendering page to stream..."
                 $page.RenderToStreamAsync($stream).GetAwaiter().GetResult()
 
+                Write-Host "Saving stream to disk at $outputPath..."
                 $fileStream = [System.IO.File]::Create($outputPath)
                 $netStream = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($stream)
                 $netStream.CopyTo($fileStream)
@@ -112,9 +159,10 @@ module OpenSourceDev
                 $stream.Close()
                 $page.Dispose()
                 $pdfDoc.Dispose()
+                Write-Host "Rendering finished successfully."
                 exit 0
             } catch {
-                Write-Error $_.Exception.Message
+                Write-Error $_.Exception.ToString()
                 exit 1
             }
           POWERSHELL
@@ -125,12 +173,36 @@ module OpenSourceDev
           begin
             require 'win32ole'
             shell = WIN32OLE.new("WScript.Shell")
-            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)}"
+            
+            # Redirect output to file to keep execution completely silent (no CMD flash)
+            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)} > #{escape_ps_string(stdout_log)} 2> #{escape_ps_string(stderr_log)}"
+            
+            puts "PDF Importer: Launching PowerShell rendering process..."
             exit_code = shell.Run(cmd, 0, true)
+            
+            # Read and print logs to SketchUp console
+            out_content = File.read(stdout_log).strip rescue ""
+            err_content = File.read(stderr_log).strip rescue ""
+            
+            puts "PDF Importer: PowerShell exit code: #{exit_code}"
+            puts "PDF Importer: PowerShell stdout:\n#{out_content}" unless out_content.empty?
+            puts "PDF Importer: PowerShell stderr:\n#{err_content}" unless err_content.empty?
+            
+            # Clean up temp files
+            File.delete(stdout_log) if File.exist?(stdout_log)
+            File.delete(stderr_log) if File.exist?(stderr_log)
             File.delete(ps_script_path) if File.exist?(ps_script_path)
+            
             return exit_code == 0 && File.exist?(output_png_path)
           rescue StandardError => e
-            puts "PDF Importer: Silent PowerShell render failed: #{e.message}, trying fallback..."
+            puts "PDF Importer: Silent PowerShell execution failed: #{e.message}"
+            # Clean up temp files
+            File.delete(stdout_log) if File.exist?(stdout_log)
+            File.delete(stderr_log) if File.exist?(stderr_log)
+            File.delete(ps_script_path) if File.exist?(ps_script_path)
+            
+            # Last resort fallback: standard system call
+            puts "PDF Importer: Trying fallback standard system call..."
             cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)}"
             success = system(cmd)
             File.delete(ps_script_path) if File.exist?(ps_script_path)
