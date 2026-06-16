@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Import Settings</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px;
+      color: #2c2c2c;
+      background: #f0f0f0;
+      padding: 16px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* ─── Header ──────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #d0d0d0;
+    }
+
+    .header-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #e74c3c, #c0392b);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .header p {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    /* ─── PDF Info ─────────────────────────────────── */
+    .pdf-info {
+      background: #e8f4fd;
+      border: 1px solid #b8ddf0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      color: #2c6fa0;
+    }
+
+    .pdf-info strong { color: #1a5276; }
+
+    .type-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 6px;
+    }
+
+    .type-badge.vector {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .type-badge.raster {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .type-badge.mixed {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+
+    .type-badge.empty {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    /* ─── Sections ────────────────────────────────── */
+    .section {
+      background: white;
+      border: 1px solid #d8d8d8;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+
+    .section.hidden { display: none; }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+
+    /* ─── Form Controls ───────────────────────────── */
+    .form-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .form-row:last-child { margin-bottom: 0; }
+
+    label {
+      font-size: 13px;
+      color: #333;
+      flex: 1;
+    }
+
+    label .hint {
+      display: block;
+      font-size: 11px;
+      color: #888;
+      margin-top: 1px;
+    }
+
+    input[type="number"], select {
+      width: 140px;
+      padding: 6px 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #333;
+      background: white;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input[type="number"]:focus, select:focus {
+      border-color: #4a90d9;
+      box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
+    }
+
+    .range-row {
+      display: flex;
+      align-items: center;
+    }
+
+    input[type="range"] {
+      width: 90px;
+      margin: 0 8px;
+    }
+
+    .range-value {
+      font-size: 12px;
+      color: #555;
+      min-width: 28px;
+      text-align: center;
+    }
+
+    /* ─── Checkboxes ──────────────────────────────── */
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .checkbox-row:last-child { margin-bottom: 0; }
+
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #4a90d9;
+      cursor: pointer;
+    }
+
+    .checkbox-label {
+      font-size: 13px;
+      color: #333;
+      cursor: pointer;
+    }
+
+    /* ─── Radio Buttons ───────────────────────────── */
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .radio-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    input[type="radio"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #4a90d9;
+      cursor: pointer;
+    }
+
+    .radio-label {
+      font-size: 13px;
+      color: #333;
+      cursor: pointer;
+    }
+
+    .radio-label .radio-hint {
+      font-size: 11px;
+      color: #888;
+      display: block;
+      margin-top: 1px;
+      margin-left: 0;
+    }
+
+    /* ─── Buttons ─────────────────────────────────── */
+    .button-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #d0d0d0;
+    }
+
+    button {
+      padding: 7px 20px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #bbb;
+      background: #f5f5f5;
+      color: #333;
+      transition: all 0.15s;
+    }
+
+    button:hover { background: #e8e8e8; }
+
+    button.primary {
+      background: #4a90d9;
+      border-color: #3a7bc8;
+      color: white;
+    }
+
+    button.primary:hover { background: #3a7bc8; }
+    button.primary:active { background: #2e6db3; }
+
+    /* ─── Loading ─────────────────────────────────── */
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #888;
+    }
+
+    .loading::after {
+      content: '';
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #ccc;
+      border-top-color: #4a90d9;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-icon">PDF</div>
+    <div>
+      <h1>PDF Import Settings</h1>
+      <p>Configure how the PDF is imported into SketchUp</p>
+    </div>
+  </div>
+
+  <!-- PDF Info -->
+  <div class="pdf-info" id="pdfInfo">
+    <span class="loading">Reading PDF</span>
+  </div>
+
+  <!-- PDF Type -->
+  <div class="section">
+    <div class="section-title">PDF Type</div>
+    <div class="form-row">
+      <label for="pdfType">
+        Import mode
+        <span class="hint">Auto-detect determines if the PDF has vector or raster content</span>
+      </label>
+      <select id="pdfType" onchange="onTypeChange()">
+        <option value="auto" selected>Auto-detect</option>
+        <option value="vector">Vector (CAD / drawings)</option>
+        <option value="raster">Raster (scanned / image)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Page Selection -->
+  <div class="section">
+    <div class="section-title">Page</div>
+    <div class="form-row">
+      <label for="pageSelect">
+        Page to import
+        <span class="hint">Select which page to import</span>
+      </label>
+      <select id="pageSelect">
+        <option value="1">Page 1</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Scale -->
+  <div class="section">
+    <div class="section-title">Scale</div>
+    <div class="form-row">
+      <label for="scaleInput">
+        Scale factor
+        <span class="hint">1.0 = actual size (1pt = 1/72")</span>
+      </label>
+      <input type="number" id="scaleInput" value="1.0" min="0.001" max="1000" step="0.1">
+    </div>
+  </div>
+
+  <!-- Vector Options -->
+  <div class="section" id="vectorOptions">
+    <div class="section-title">Vector Options</div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="importStrokes" checked>
+      <label class="checkbox-label" for="importStrokes">Import stroked paths (outlines)</label>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="importFills" checked>
+      <label class="checkbox-label" for="importFills">Import filled paths (solid shapes)</label>
+    </div>
+    <div class="form-row" style="margin-top: 10px;">
+      <label>
+        Bézier segments
+        <span class="hint">More segments = smoother curves</span>
+      </label>
+      <div class="range-row">
+        <span class="range-value" id="segmentValue">16</span>
+        <input type="range" id="segmentSlider" min="4" max="64" value="16" step="4">
+      </div>
+    </div>
+  </div>
+
+  <!-- Raster Options -->
+  <div class="section hidden" id="rasterOptions">
+    <div class="section-title">Raster Options</div>
+    <div class="radio-group">
+      <div class="radio-row">
+        <input type="radio" id="modeImage" name="rasterMode" value="image" checked>
+        <label class="radio-label" for="modeImage">
+          Import as reference image
+          <span class="radio-hint">Places the scan on the ground plane for manual tracing</span>
+        </label>
+      </div>
+      <div class="radio-row">
+        <input type="radio" id="modeTrace" name="rasterMode" value="trace">
+        <label class="radio-label" for="modeTrace">
+          Auto-trace edges
+          <span class="radio-hint">Detects edges and creates SketchUp geometry automatically</span>
+        </label>
+      </div>
+      <div class="radio-row">
+        <input type="radio" id="modeBoth" name="rasterMode" value="both">
+        <label class="radio-label" for="modeBoth">
+          Both (image + trace)
+          <span class="radio-hint">Import image and overlay traced edges on top</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trace Settings (shown when trace or both is selected) -->
+  <div class="section hidden" id="traceSettings">
+    <div class="section-title">Trace Settings</div>
+    <div class="form-row">
+      <label>
+        Threshold
+        <span class="hint">Lower = more detail, higher = less noise</span>
+      </label>
+      <div class="range-row">
+        <span class="range-value" id="thresholdValue">128</span>
+        <input type="range" id="thresholdSlider" min="20" max="235" value="128" step="5">
+      </div>
+    </div>
+    <div class="form-row">
+      <label>
+        Simplify
+        <span class="hint">Higher = fewer edges, smoother lines</span>
+      </label>
+      <div class="range-row">
+        <span class="range-value" id="simplifyValue">2.0</span>
+        <input type="range" id="simplifySlider" min="0.5" max="10" value="2" step="0.5">
+      </div>
+    </div>
+  </div>
+
+  <!-- Buttons -->
+  <div class="button-row">
+    <button onclick="doCancel()">Cancel</button>
+    <button class="primary" onclick="doImport()">Import</button>
+  </div>
+
+  <script>
+    var pdfInfo = null;
+
+    function setPDFInfo(info) {
+      pdfInfo = info;
+
+      // Update info display with type badge
+      var infoEl = document.getElementById('pdfInfo');
+      var typeLabel = info.detected_type || 'vector';
+      var typeBadge = '<span class="type-badge ' + typeLabel + '">' +
+        typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1) + '</span>';
+
+      if (info.page_count === 1) {
+        var page = info.pages[0];
+        infoEl.innerHTML = '<strong>' + info.page_count + ' page</strong> &mdash; ' +
+          page.width_inches + '" &times; ' + page.height_inches + '"' +
+          ' (' + Math.round(page.width) + ' &times; ' + Math.round(page.height) + ' pt)' +
+          typeBadge;
+      } else {
+        infoEl.innerHTML = '<strong>' + info.page_count + ' pages</strong>' + typeBadge;
+      }
+
+      // Populate page selector
+      var select = document.getElementById('pageSelect');
+      select.innerHTML = '';
+      for (var i = 0; i < info.pages.length; i++) {
+        var p = info.pages[i];
+        var opt = document.createElement('option');
+        opt.value = p.index;
+        opt.textContent = 'Page ' + p.index + ' (' + p.width_inches + '" \u00d7 ' + p.height_inches + '")';
+        select.appendChild(opt);
+      }
+
+      // Auto-select type based on detection
+      if (info.detected_type === 'raster') {
+        document.getElementById('pdfType').value = 'auto';
+        // Show raster options since auto will detect raster
+        updateVisibility('raster');
+      } else {
+        updateVisibility('vector');
+      }
+    }
+
+    // ─── Slider displays ──────────────────────────
+    document.getElementById('segmentSlider').addEventListener('input', function() {
+      document.getElementById('segmentValue').textContent = this.value;
+    });
+
+    document.getElementById('thresholdSlider').addEventListener('input', function() {
+      document.getElementById('thresholdValue').textContent = this.value;
+    });
+
+    document.getElementById('simplifySlider').addEventListener('input', function() {
+      document.getElementById('simplifyValue').textContent = this.value;
+    });
+
+    // ─── Type change ──────────────────────────────
+    function onTypeChange() {
+      var type = document.getElementById('pdfType').value;
+      if (type === 'auto' && pdfInfo) {
+        updateVisibility(pdfInfo.detected_type === 'raster' ? 'raster' : 'vector');
+      } else {
+        updateVisibility(type);
+      }
+    }
+
+    function updateVisibility(effectiveType) {
+      var vectorOpts = document.getElementById('vectorOptions');
+      var rasterOpts = document.getElementById('rasterOptions');
+      var traceSettings = document.getElementById('traceSettings');
+
+      if (effectiveType === 'raster') {
+        vectorOpts.classList.add('hidden');
+        rasterOpts.classList.remove('hidden');
+        updateTraceVisibility();
+      } else {
+        vectorOpts.classList.remove('hidden');
+        rasterOpts.classList.add('hidden');
+        traceSettings.classList.add('hidden');
+      }
+    }
+
+    // Show trace settings when trace or both mode is selected
+    document.querySelectorAll('input[name="rasterMode"]').forEach(function(radio) {
+      radio.addEventListener('change', updateTraceVisibility);
+    });
+
+    function updateTraceVisibility() {
+      var mode = document.querySelector('input[name="rasterMode"]:checked').value;
+      var traceSettings = document.getElementById('traceSettings');
+      if (mode === 'trace' || mode === 'both') {
+        traceSettings.classList.remove('hidden');
+      } else {
+        traceSettings.classList.add('hidden');
+      }
+    }
+
+    // ─── Import / Cancel ──────────────────────────
+    function doImport() {
+      var pdfType = document.getElementById('pdfType').value;
+      var rasterMode = document.querySelector('input[name="rasterMode"]:checked').value;
+
+      var data = {
+        scale: parseFloat(document.getElementById('scaleInput').value) || 1.0,
+        page: parseInt(document.getElementById('pageSelect').value) || 1,
+        strokes: document.getElementById('importStrokes').checked,
+        fills: document.getElementById('importFills').checked,
+        segments: parseInt(document.getElementById('segmentSlider').value) || 16,
+        pdfType: pdfType,
+        rasterMode: rasterMode,
+        threshold: parseInt(document.getElementById('thresholdSlider').value) || 128,
+        simplify: parseFloat(document.getElementById('simplifySlider').value) || 2.0
+      };
+
+      // Validation
+      if (data.scale <= 0) {
+        alert('Scale must be greater than 0.');
+        return;
+      }
+
+      var effectiveType = pdfType;
+      if (pdfType === 'auto' && pdfInfo) {
+        effectiveType = pdfInfo.detected_type === 'raster' ? 'raster' : 'vector';
+      }
+
+      if (effectiveType === 'vector' && !data.strokes && !data.fills) {
+        alert('Please select at least one import option (strokes or fills).');
+        return;
+      }
+
+      window.sketchup.do_import(data);
+    }
+
+    function doCancel() {
+      window.sketchup.do_cancel();
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') doImport();
+      if (e.key === 'Escape') doCancel();
+    });
+  </script>
+
+</body>
+</html>
