@@ -119,18 +119,11 @@ module OpenSourceDev
             }
 
             try {
-                Log-Msg "Loading WinRT assemblies..."
+                Log-Msg "Loading Windows Runtime types..."
                 [void][System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.WindowsRuntime")
-                
-                Log-Msg "Loading Windows.winmd..."
-                $winmd = [IO.Path]::Combine($env:windir, "System32\\WinMetadata\\Windows.winmd")
-                if (-not (Test-Path $winmd)) {
-                    $winmd = [IO.Path]::Combine($env:windir, "Sysnative\\WinMetadata\\Windows.winmd")
-                }
-                if (-not (Test-Path $winmd)) {
-                    throw "WinMetadata file not found in System32 or Sysnative at $env:windir\\*\\WinMetadata\\Windows.winmd"
-                }
-                [void][System.Reflection.Assembly]::LoadFile($winmd)
+                [void][Windows.Data.Pdf.PdfDocument, Windows.Data.Pdf, ContentType=WindowsRuntime]
+                [void][Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime]
+                [void][Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage, ContentType=WindowsRuntime]
 
                 $pdfPath = #{escape_ps_string(abs_pdf)}
                 $outputPath = #{escape_ps_string(abs_png)}
@@ -320,6 +313,9 @@ module OpenSourceDev
         end
 
         img_w = image_rep.width
+        img_h = image_rep.height
+        return 0 if img_w == 0 || img_h == 0
+
         # Downsample resolution based on trace method (centerline needs more processing, outline can be larger)
         trace_method = settings[:trace_method] || 'centerline'
         max_dim = (trace_method == 'centerline') ? 900 : 1200
