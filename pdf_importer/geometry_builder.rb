@@ -189,8 +189,9 @@ module OpenSourceDev
         return [] if filtered.length < 2
 
         begin
-          # add_edges returns an array of Edge objects in a single C++ operation
-          entities.add_edges(filtered)
+          # add_edges returns an array of Edge objects in a single C++ operation, or nil if failed
+          res = entities.add_edges(filtered)
+          res || []
         rescue StandardError
           # Fallback to individual lines if add_edges fails
           edges = []
