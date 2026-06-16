@@ -71,7 +71,7 @@ module OpenSourceDev
 
       # ─── Path Construction ────────────────────────────────
 
-      def move_to(x, y)
+      def begin_new_subpath(x, y)
         # Finish current subpath if it has operations
         finish_subpath unless @current_ops.empty?
 
@@ -80,14 +80,16 @@ module OpenSourceDev
         @subpath_start = { x: tx, y: ty }
         @current_ops << { op: :move_to, x: tx, y: ty }
       end
+      alias move_to begin_new_subpath
 
-      def line_to(x, y)
+      def append_line(x, y)
         tx, ty = transform_point(x.to_f, y.to_f)
         @current_ops << { op: :line_to, x: tx, y: ty }
         @current_point = { x: tx, y: ty }
       end
+      alias line_to append_line
 
-      def curve_to(x1, y1, x2, y2, x3, y3)
+      def append_curved_segment(x1, y1, x2, y2, x3, y3)
         # Cubic Bézier: current_point → (x1,y1) → (x2,y2) → (x3,y3)
         tx1, ty1 = transform_point(x1.to_f, y1.to_f)
         tx2, ty2 = transform_point(x2.to_f, y2.to_f)
@@ -101,16 +103,19 @@ module OpenSourceDev
         }
         @current_point = { x: tx3, y: ty3 }
       end
+      alias curve_to append_curved_segment
 
       # Bézier with first control point = current point (PDF operator 'v')
-      def curve_to_initial(x2, y2, x3, y3)
-        curve_to(@current_point[:x], @current_point[:y], x2, y2, x3, y3)
+      def append_curved_segment_initial_point_replicated(x2, y2, x3, y3)
+        append_curved_segment(@current_point[:x], @current_point[:y], x2, y2, x3, y3)
       end
+      alias curve_to_initial append_curved_segment_initial_point_replicated
 
       # Bézier with last control point = endpoint (PDF operator 'y')
-      def curve_to_final(x1, y1, x3, y3)
-        curve_to(x1, y1, x3, y3, x3, y3)
+      def append_curved_segment_final_point_replicated(x1, y1, x3, y3)
+        append_curved_segment(x1, y1, x3, y3, x3, y3)
       end
+      alias curve_to_final append_curved_segment_final_point_replicated
 
       def append_rectangle(x, y, width, height)
         x = x.to_f
@@ -156,41 +161,49 @@ module OpenSourceDev
 
       # ─── Path Painting ────────────────────────────────────
 
-      def stroke
+      def stroke_path
         complete_path(:stroke)
       end
+      alias stroke stroke_path
 
-      def fill(params = nil)
+      def fill_path_with_nonzero(*args)
         complete_path(:fill)
       end
+      alias fill fill_path_with_nonzero
 
       # pdf-reader calls this for the 'f*' operator (even-odd fill)
-      def fill_with_even_odd
+      def fill_path_with_even_odd(*args)
         complete_path(:fill)
       end
+      alias fill_with_even_odd fill_path_with_even_odd
 
-      def fill_and_stroke
+      def fill_stroke
         complete_path(:fill_and_stroke)
       end
+      alias fill_and_stroke fill_stroke
 
-      def fill_and_stroke_with_even_odd
+      def fill_stroke_with_even_odd
         complete_path(:fill_and_stroke)
       end
+      alias fill_and_stroke_with_even_odd fill_stroke_with_even_odd
 
-      def close_and_stroke
+      def close_and_stroke_path
         close_subpath
         complete_path(:stroke)
       end
+      alias close_and_stroke close_and_stroke_path
 
-      def close_and_fill_and_stroke
+      def close_fill_stroke
         close_subpath
         complete_path(:fill_and_stroke)
       end
+      alias close_and_fill_and_stroke close_fill_stroke
 
-      def close_and_fill_and_stroke_with_even_odd
+      def close_fill_stroke_with_even_odd
         close_subpath
         complete_path(:fill_and_stroke)
       end
+      alias close_and_fill_and_stroke_with_even_odd close_fill_stroke_with_even_odd
 
       def end_path
         # Discard the current path (used for clipping only)
@@ -200,13 +213,15 @@ module OpenSourceDev
 
       # ─── Clipping (no-op, just consume) ───────────────────
 
-      def clip(params = nil)
+      def set_clipping_path_with_nonzero(*args)
         # We don't implement clipping, just ignore
       end
+      alias clip set_clipping_path_with_nonzero
 
-      def clip_with_even_odd
+      def set_clipping_path_with_even_odd(*args)
         # We don't implement clipping, just ignore
       end
+      alias clip_with_even_odd set_clipping_path_with_even_odd
 
       # ─── Color/Graphics state we don't need ───────────────
       # Define these as no-ops so pdf-reader doesn't complain
