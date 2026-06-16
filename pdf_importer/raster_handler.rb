@@ -102,55 +102,66 @@ module OpenSourceDev
           stdout_log = File.join(temp_dir, 'pdf_render_out.log').gsub('/', '\\')
           stderr_log = File.join(temp_dir, 'pdf_render_err.log').gsub('/', '\\')
 
+          # Delete pre-existing logs to avoid reading stale data
+          File.delete(stdout_log) if File.exist?(stdout_log)
+          File.delete(stderr_log) if File.exist?(stderr_log)
+
           # 0-indexed page number for WinRT
           page_idx = page_number - 1
 
           ps_content = <<~POWERSHELL
             $ErrorActionPreference = "Stop"
-            Write-Host "Loading WinRT assemblies..."
-            [void][System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.WindowsRuntime")
-            
-            Write-Host "Loading Windows.winmd..."
-            $winmd = [IO.Path]::Combine($env:windir, "System32\\WinMetadata\\Windows.winmd")
-            if (-not (Test-Path $winmd)) {
-                throw "WinMetadata file not found at $winmd"
+            $logPath = #{escape_ps_string(stdout_log)}
+            $errPath = #{escape_ps_string(stderr_log)}
+
+            function Log-Msg($msg) {
+                Add-Content -Path $logPath -Value $msg
             }
-            [void][System.Reflection.Assembly]::LoadFile($winmd)
-
-            $pdfPath = #{escape_ps_string(abs_pdf)}
-            $outputPath = #{escape_ps_string(abs_png)}
-            $pageIndex = #{page_idx}
-
-            Write-Host "PDF Path: $pdfPath"
-            Write-Host "Output Path: $outputPath"
-            Write-Host "Page Index: $pageIndex"
 
             try {
+                Log-Msg "Loading WinRT assemblies..."
+                [void][System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.WindowsRuntime")
+                
+                Log-Msg "Loading Windows.winmd..."
+                $winmd = [IO.Path]::Combine($env:windir, "System32\\WinMetadata\\Windows.winmd")
+                if (-not (Test-Path $winmd)) {
+                    throw "WinMetadata file not found at $winmd"
+                }
+                [void][System.Reflection.Assembly]::LoadFile($winmd)
+
+                $pdfPath = #{escape_ps_string(abs_pdf)}
+                $outputPath = #{escape_ps_string(abs_png)}
+                $pageIndex = #{page_idx}
+
+                Log-Msg "PDF Path: $pdfPath"
+                Log-Msg "Output Path: $outputPath"
+                Log-Msg "Page Index: $pageIndex"
+
                 if (-not (Test-Path $pdfPath)) {
                     throw "PDF source file does not exist at $pdfPath"
                 }
                 
-                Write-Host "Resolving StorageFile..."
+                Log-Msg "Resolving StorageFile..."
                 $storageFile = [Windows.Storage.StorageFile]::GetFileFromPathAsync($pdfPath).GetAwaiter().GetResult()
                 
-                Write-Host "Loading PDF Document..."
+                Log-Msg "Loading PDF Document..."
                 $pdfDoc = [Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($storageFile).GetAwaiter().GetResult()
-                Write-Host "PDF page count: $($pdfDoc.PageCount)"
+                Log-Msg "PDF page count: $($pdfDoc.PageCount)"
                 
                 if ($pageIndex -ge $pdfDoc.PageCount) {
                     throw "Requested page index $pageIndex is out of range. Document has $($pdfDoc.PageCount) pages."
                 }
                 
-                Write-Host "Retrieving page $pageIndex..."
+                Log-Msg "Retrieving page $pageIndex..."
                 $page = $pdfDoc.GetPage($pageIndex)
                 
-                Write-Host "Creating in-memory stream..."
+                Log-Msg "Creating in-memory stream..."
                 $stream = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
                 
-                Write-Host "Rendering page to stream..."
+                Log-Msg "Rendering page to stream..."
                 $page.RenderToStreamAsync($stream).GetAwaiter().GetResult()
 
-                Write-Host "Saving stream to disk at $outputPath..."
+                Log-Msg "Saving stream to disk at $outputPath..."
                 $fileStream = [System.IO.File]::Create($outputPath)
                 $netStream = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($stream)
                 $netStream.CopyTo($fileStream)
@@ -159,10 +170,11 @@ module OpenSourceDev
                 $stream.Close()
                 $page.Dispose()
                 $pdfDoc.Dispose()
-                Write-Host "Rendering finished successfully."
+                Log-Msg "Rendering finished successfully."
                 exit 0
             } catch {
-                Write-Error $_.Exception.ToString()
+                $err = $_.Exception.ToString()
+                Add-Content -Path $errPath -Value $err
                 exit 1
             }
           POWERSHELL
@@ -174,8 +186,8 @@ module OpenSourceDev
             require 'win32ole'
             shell = WIN32OLE.new("WScript.Shell")
             
-            # Redirect output to file to keep execution completely silent (no CMD flash)
-            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)} > #{escape_ps_string(stdout_log)} 2> #{escape_ps_string(stderr_log)}"
+            # Run powershell directly without command-shell redirects
+            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)}"
             
             puts "PDF Importer: Launching PowerShell rendering process..."
             exit_code = shell.Run(cmd, 0, true)
@@ -184,7 +196,7 @@ module OpenSourceDev
             out_content = File.read(stdout_log).strip rescue ""
             err_content = File.read(stderr_log).strip rescue ""
             
-            puts "PDF Importer: PowerShell exit code: #{exit_code}"
+            puts "PDF Importer: PowerShell exit status: #{exit_code}"
             puts "PDF Importer: PowerShell stdout:\n#{out_content}" unless out_content.empty?
             puts "PDF Importer: PowerShell stderr:\n#{err_content}" unless err_content.empty?
             
