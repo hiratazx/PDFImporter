@@ -186,8 +186,8 @@ module OpenSourceDev
             require 'win32ole'
             shell = WIN32OLE.new("WScript.Shell")
             
-            # Run powershell directly without command-shell redirects
-            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)}"
+            # Run powershell directly without command-shell redirects, using double quotes for path
+            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File \"#{ps_script_path}\""
             
             puts "PDF Importer: Launching PowerShell rendering process..."
             exit_code = shell.Run(cmd, 0, true)
@@ -215,7 +215,7 @@ module OpenSourceDev
             
             # Last resort fallback: standard system call
             puts "PDF Importer: Trying fallback standard system call..."
-            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File #{escape_ps_string(ps_script_path)}"
+            cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File \"#{ps_script_path}\""
             success = system(cmd)
             File.delete(ps_script_path) if File.exist?(ps_script_path)
             return success && File.exist?(output_png_path)
@@ -320,8 +320,8 @@ module OpenSourceDev
         img_h = image_rep.height
         return 0 if img_w == 0 || img_h == 0
 
-        # Downsample if too large (max 800px on longest side for performance)
-        max_dim = 800
+        # Downsample if too large (max 1200px on longest side for performance)
+        max_dim = 1200
         if img_w > max_dim || img_h > max_dim
           downsample_factor = [img_w, img_h].max.to_f / max_dim
         else
@@ -340,18 +340,31 @@ module OpenSourceDev
         bytes_per_row = img_w * 4 + row_padding
 
         ds_h.times do |dy|
-          src_y = (dy * downsample_factor).to_i
-          next if src_y >= img_h
+          start_y = (dy * downsample_factor).to_i
+          end_y = ((dy + 1) * downsample_factor).to_i
+          end_y = img_h if end_y > img_h
+          
           ds_w.times do |dx|
-            src_x = (dx * downsample_factor).to_i
-            next if src_x >= img_w
-            # ImageRep data is bottom-up BGRA
-            offset = src_y * bytes_per_row + src_x * 4
-            b = pixel_data.getbyte(offset) || 0
-            g = pixel_data.getbyte(offset + 1) || 0
-            r = pixel_data.getbyte(offset + 2) || 0
-            # Luminance
-            gray[dy][dx] = (0.299 * r + 0.587 * g + 0.114 * b).to_i
+            start_x = (dx * downsample_factor).to_i
+            end_x = ((dx + 1) * downsample_factor).to_i
+            end_x = img_w if end_x > img_w
+            
+            # Find the minimum (darkest) pixel in this block to preserve thin lines
+            min_val = 255
+            step = (downsample_factor / 3.0).clamp(1.0, 4.0).to_i
+            
+            (start_y...end_y).step(step) do |sy|
+              (start_x...end_x).step(step) do |sx|
+                offset = sy * bytes_per_row + sx * 4
+                b = pixel_data.getbyte(offset) || 255
+                g = pixel_data.getbyte(offset + 1) || 255
+                r = pixel_data.getbyte(offset + 2) || 255
+                val = (0.299 * r + 0.587 * g + 0.114 * b).to_i
+                min_val = val if val < min_val
+              end
+            end
+            
+            gray[dy][dx] = min_val
           end
         end
 
