@@ -55,6 +55,16 @@ No more paying for expensive PDF import plugins — this extension does it for f
 
 ### Method 2: Build from Source
 
+**Windows:**
+
+```cmd
+git clone https://github.com/hiratazx/PDFImporter.git
+cd PDFImporter
+build.bat
+```
+
+**Linux / macOS:**
+
 ```bash
 git clone https://github.com/hiratazx/PDFImporter.git
 cd PDFImporter

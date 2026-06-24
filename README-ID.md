@@ -55,6 +55,16 @@ Tidak perlu lagi membayar plugin impor PDF yang mahal — ekstensi ini melakukan
 
 ### Metode 2: Build dari Source
 
+**Windows:**
+
+```cmd
+git clone https://github.com/hiratazx/PDFImporter.git
+cd PDFImporter
+build.bat
+```
+
+**Linux / macOS:**
+
 ```bash
 git clone https://github.com/hiratazx/PDFImporter.git
 cd PDFImporter
