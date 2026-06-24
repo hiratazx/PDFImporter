@@ -1,6 +1,12 @@
 name: Build & Release
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.github/dependabot.yml'
+      - 'LICENSE'
   workflow_dispatch:
     inputs:
       mode:
@@ -112,7 +118,7 @@ jobs:
 
       # ── Mode: Artifact ─────────────────────────────────────────
       - name: Upload build artifact
-        if: inputs.mode == 'artifact'
+        if: inputs.mode == 'artifact' || inputs.mode == ''
         uses: actions/upload-artifact@v4
         with:
           name: pdf_importer
@@ -120,7 +126,7 @@ jobs:
           retention-days: 90
 
       - name: Upload changelog artifact
-        if: inputs.mode == 'artifact'
+        if: inputs.mode == 'artifact' || inputs.mode == ''
         uses: actions/upload-artifact@v4
         with:
           name: changelog
