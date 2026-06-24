@@ -1,3 +1,11 @@
+<p align="center">
+  <strong>🌐 Language / Bahasa:</strong>&nbsp;&nbsp;
+  <a href="README.md">🇬🇧 English</a> ·
+  <a href="README-ID.md">🇮🇩 Indonesia</a>
+</p>
+
+---
+
 # PDF Importer for SketchUp
 
 A **free and open-source** SketchUp extension that imports vector PDF files as editable geometry (edges, faces, curves).
