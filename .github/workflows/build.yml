@@ -1,0 +1,148 @@
+name: Build & Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Output mode"
+        required: true
+        type: choice
+        options:
+          - artifact
+          - release
+        default: artifact
+      tag:
+        description: "Release tag (e.g. v1.0.0) — required for release mode"
+        required: false
+        type: string
+      release_name:
+        description: "Release title (optional, defaults to tag)"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build .rbz
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for changelog generation
+
+      # ── Build ──────────────────────────────────────────────────
+      - name: Build pdf_importer.rbz
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Verify build output
+        run: |
+          if [ ! -f pdf_importer.rbz ]; then
+            echo "::error::Build failed — pdf_importer.rbz not found"
+            exit 1
+          fi
+          echo "BUILD_SIZE=$(du -h pdf_importer.rbz | cut -f1)" >> "$GITHUB_ENV"
+
+      # ── Generate Changelog ─────────────────────────────────────
+      - name: Generate changelog from git history
+        id: changelog
+        run: |
+          # Determine the range of commits for the changelog
+          PREVIOUS_TAG=$(git tag --sort=-creatordate | head -n 1)
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "first_release=true" >> "$GITHUB_OUTPUT"
+            echo "## 🎉 Initial Release" > changelog.md
+            echo "" >> changelog.md
+            echo "This is the first release of **PDF Importer for SketchUp**." >> changelog.md
+            echo "" >> changelog.md
+            echo "### All Changes" >> changelog.md
+            echo "" >> changelog.md
+            git log --pretty=format:"- %s (%h)" --reverse >> changelog.md
+          else
+            echo "first_release=false" >> "$GITHUB_OUTPUT"
+            echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+            echo "## What's Changed since \`$PREVIOUS_TAG\`" > changelog.md
+            echo "" >> changelog.md
+
+            # Group commits by conventional-commit prefix
+            for prefix_label in "feat:✨ Features" "fix:🐛 Bug Fixes" "perf:⚡ Performance" "docs:📝 Documentation" "chore:🔧 Maintenance" "refactor:♻️ Refactors" "debug:🔍 Debug"; do
+              prefix="${prefix_label%%:*}"
+              label="${prefix_label#*:}"
+
+              commits=$(git log "$PREVIOUS_TAG"..HEAD --pretty=format:"- %s (%h)" --grep="^${prefix}" 2>/dev/null || true)
+              if [ -n "$commits" ]; then
+                echo "" >> changelog.md
+                echo "### $label" >> changelog.md
+                echo "" >> changelog.md
+                echo "$commits" >> changelog.md
+              fi
+            done
+
+            # Uncategorized commits (don't match any prefix)
+            uncategorized=$(git log "$PREVIOUS_TAG"..HEAD --pretty=format:"%s|%h" | while IFS='|' read -r msg hash; do
+              if ! echo "$msg" | grep -qE "^(feat|fix|perf|docs|chore|refactor|debug)"; then
+                echo "- $msg ($hash)"
+              fi
+            done)
+            if [ -n "$uncategorized" ]; then
+              echo "" >> changelog.md
+              echo "### 📦 Other Changes" >> changelog.md
+              echo "" >> changelog.md
+              echo "$uncategorized" >> changelog.md
+            fi
+          fi
+
+          echo "" >> changelog.md
+          echo "---" >> changelog.md
+          echo "**Build size:** $BUILD_SIZE" >> changelog.md
+
+          echo "--- Generated Changelog ---"
+          cat changelog.md
+
+      # ── Mode: Artifact ─────────────────────────────────────────
+      - name: Upload build artifact
+        if: inputs.mode == 'artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf_importer
+          path: pdf_importer.rbz
+          retention-days: 90
+
+      - name: Upload changelog artifact
+        if: inputs.mode == 'artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: changelog.md
+          retention-days: 90
+
+      # ── Mode: Release ──────────────────────────────────────────
+      - name: Validate release inputs
+        if: inputs.mode == 'release'
+        run: |
+          if [ -z "${{ inputs.tag }}" ]; then
+            echo "::error::A tag is required when mode is 'release'. Re-run the workflow and provide a tag (e.g. v1.0.0)."
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        if: inputs.mode == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.release_name || inputs.tag }}
+          body_path: changelog.md
+          prerelease: ${{ inputs.prerelease }}
+          files: pdf_importer.rbz
+          generate_release_notes: false
