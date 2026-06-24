@@ -119,7 +119,7 @@ jobs:
       # ── Mode: Artifact ─────────────────────────────────────────
       - name: Upload build artifact
         if: inputs.mode == 'artifact' || inputs.mode == ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pdf_importer
           path: pdf_importer.rbz
@@ -127,7 +127,7 @@ jobs:
 
       - name: Upload changelog artifact
         if: inputs.mode == 'artifact' || inputs.mode == ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: changelog
           path: changelog.md
